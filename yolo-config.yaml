@@ -1,0 +1,4 @@
+train: C:/Users/joris/Documents/joris/dev/yolo-ai/data/train/images
+val: C:/Users/joris/Documents/joris/dev/yolo-ai/data/val/images
+nc: 6 # Number of classes
+names: ["bird", "cat", "dog", "package", "person", "postal van"] # Class names
