@@ -149,7 +149,8 @@ def export_onnx_end2end(model, im, file, simplify, topk_all, iou_thres, conf_thr
     f = os.path.splitext(file)[0] + "-end2end.onnx"
     batch_size = 'batch'
 
-    dynamic_axes = {'images': {0 : 'batch', 2: 'height', 3:'width'}, } # variable length axes
+    # dynamic_axes = {'images': {0 : 'batch', 2: 'height', 3:'width'}, } # variable length axes
+    dynamic_axes = {'images': {0 : 'batch'}, } # Only batch is dynamic, height/width are fixed
 
     output_axes = {
                     'num_dets': {0: 'batch'},
@@ -169,7 +170,7 @@ def export_onnx_end2end(model, im, file, simplify, topk_all, iou_thres, conf_thr
                           f, 
                           verbose=False, 
                           export_params=True,       # store the trained parameter weights inside the model file
-                          opset_version=12, 
+                          opset_version=13, 
                           do_constant_folding=True, # whether to execute constant folding for optimization
                           input_names=['images'],
                           output_names=output_names,
@@ -668,7 +669,7 @@ def parse_opt():
 
     if 'onnx_end2end' in opt.include:  
         opt.simplify = True
-        opt.dynamic = True
+        opt.dynamic = False # changed to false
         opt.inplace = True
         opt.half = False
 
