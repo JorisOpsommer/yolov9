@@ -26,7 +26,7 @@ def run(
         source=ROOT / 'data/images',  # file/dir/URL/glob/screen/0(webcam)
         data=ROOT / 'data/coco.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
-        conf_thres=0.25,  # confidence threshold
+        conf_thres=0.1,  # confidence threshold
         iou_thres=0.45,  # NMS IOU threshold
         max_det=1000,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
@@ -146,6 +146,14 @@ def run(
 
             # Stream results
             im0 = annotator.result()
+            # New code to show conf score at the left top
+            if len(det):
+                conf_str = ", ".join(['%.2f' % conf for conf in det[:, 4]])
+                pos = (10, 30)
+                # Draw black background/outline for maximum readability
+                cv2.putText(im0, conf_str, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+                # Draw the main red text
+                cv2.putText(im0, conf_str, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             if view_img:
                 if platform.system() == 'Linux' and p not in windows:
                     windows.append(p)
