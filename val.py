@@ -104,6 +104,7 @@ def run(
         plots=True,
         callbacks=Callbacks(),
         compute_loss=None,
+        return_ap50=False,  # also return per-class mAP@0.5: (results, maps, maps50, t)
 ):
     # Initialize/load model and set device
     training = model is not None
@@ -313,9 +314,14 @@ def run(
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     maps = np.zeros(nc) + map
+    maps50 = np.zeros(nc) + map50
     for i, c in enumerate(ap_class):
         maps[c] = ap[i]
-    return (mp, mr, map50, map, *(loss.cpu() / len(dataloader)).tolist()), maps, t
+        maps50[c] = ap50[i]
+    results = (mp, mr, map50, map, *(loss.cpu() / len(dataloader)).tolist())
+    if return_ap50:
+        return results, maps, maps50, t
+    return results, maps, t
 
 
 def parse_opt():

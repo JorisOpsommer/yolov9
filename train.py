@@ -215,6 +215,20 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             #     check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)  # run AutoAnchor
             model.half().float()  # pre-reduce anchor precision
 
+        # best.pt / early stopping only count classes with at least --fitness-min-boxes boxes in train + val (and at
+        # least one in val): a class with little data has an AP that jumps between epochs and would pick a lucky
+        # epoch instead of a better model. Those classes are still trained and reported.
+        val_boxes = np.bincount(np.concatenate([l[:, 0] for l in val_loader.dataset.labels] + [np.zeros(0)]).astype(int),
+                                minlength=nc)
+        all_boxes = np.bincount(labels[:, 0].astype(int), minlength=nc) + val_boxes
+        fit_cls = (all_boxes >= opt.fitness_min_boxes) & (val_boxes > 0)
+        if not fit_cls.any():
+            fit_cls = val_boxes > 0
+        if opt.fitness_min_boxes > 0:
+            LOGGER.info(f"best.pt fitness uses classes with >= {opt.fitness_min_boxes} boxes (train + val): "
+                        f"{', '.join(f'{names[i]} ({all_boxes[i]})' for i in range(nc) if fit_cls[i])}; ignored: "
+                        f"{', '.join(f'{names[i]} ({all_boxes[i]})' for i in range(nc) if not fit_cls[i]) or 'none'}")
+
         callbacks.run('on_pretrain_routine_end', labels, names)
 
     # DDP mode
@@ -239,6 +253,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     # nw = min(nw, (epochs - start_epoch) / 2 * nb)  # limit warmup to < 1/2 of training
     last_opt_step = -1
     maps = np.zeros(nc)  # mAP per class
+    maps50 = np.zeros(nc)  # mAP@0.5 per class
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     scheduler.last_epoch = start_epoch - 1  # do not move
     scaler = torch.cuda.amp.GradScaler(enabled=amp)
@@ -342,7 +357,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'names', 'stride', 'class_weights'])
             final_epoch = (epoch + 1 == epochs) or stopper.possible_stop
             if not noval or final_epoch:  # Calculate mAP
-                results, maps, _ = validate.run(data_dict,
+                results, maps, maps50, _ = validate.run(data_dict,
                                                 batch_size=batch_size // WORLD_SIZE * 2,
                                                 imgsz=imgsz,
                                                 half=amp,
@@ -352,10 +367,16 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                                                 save_dir=save_dir,
                                                 plots=False,
                                                 callbacks=callbacks,
-                                                compute_loss=compute_loss)
+                                                compute_loss=compute_loss,
+                                                return_ap50=True)
 
             # Update best mAP
-            fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
+            if opt.fitness_min_boxes > 0:  # same weights as fitness(), averaged over the classes in fit_cls only
+                fi = np.array([0.1 * maps50[fit_cls].mean() + 0.9 * maps[fit_cls].mean()])
+            else:
+                fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
+            with open(save_dir / 'fitness.csv', 'a') as f:  # the fitness that picks best.pt, one row per epoch
+                f.write(f'{epoch},{float(fi[0]):.6f}\n')
             stop = stopper(epoch=epoch, fitness=fi)  # early stop check
             if fi > best_fitness:
                 best_fitness = fi
@@ -469,6 +490,8 @@ def parse_opt(known=False):
     parser.add_argument('--local_rank', type=int, default=-1, help='Automatic DDP Multi-GPU argument, do not modify')
     parser.add_argument('--min-items', type=int, default=0, help='Experimental')
     parser.add_argument('--close-mosaic', type=int, default=0, help='Experimental')
+    parser.add_argument('--fitness-min-boxes', type=int, default=0,
+                        help='pick best.pt only on classes with at least this many boxes in train + val (0 = all classes)')
 
     # Logger arguments
     parser.add_argument('--entity', default=None, help='Entity')
